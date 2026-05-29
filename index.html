@@ -106,7 +106,7 @@ function refresh() {
       // 字段位置: 3=现价, 4=昨收, 5=开盘, 7=成交量
       // 31=时间, 32=涨跌额, 33=涨跌幅%, 34=最高, 35=最低
       var close = parseFloat(f[3]);
-      var changePct = parseFloat(f[33]);
+      var changePct = parseFloat(f[32]);
 
       if (isNaN(close) || isNaN(changePct)) { throw new Error('parse fail'); }
 
@@ -116,10 +116,10 @@ function refresh() {
       // 填充数据
       document.getElementById('price').textContent = fmt(close);
       document.getElementById('open').textContent = fmt(parseFloat(f[5]));
-      document.getElementById('high').textContent = fmt(parseFloat(f[34]));
-      document.getElementById('low').textContent = fmt(parseFloat(f[35]));
+      document.getElementById('high').textContent = fmt(parseFloat(f[33]));
+      document.getElementById('low').textContent = fmt(parseFloat(f[34]));
       document.getElementById('prevClose').textContent = fmt(parseFloat(f[4]));
-      document.getElementById('updateTime').textContent = f[31] || '--';
+      document.getElementById('updateTime').textContent = f[30] || '--';
 
       var el = document.getElementById('change');
       var isUp = changePct >= 0;
