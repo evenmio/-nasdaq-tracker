@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(node nasdaq-tracker.js)",
+      "Bash(node -e ' *)",
+      "Bash(npx vercel *)",
+      "Bash(gh --version)",
+      "Bash(npx surge *)",
+      "Bash(gh auth *)",
+      "Bash(mkdir -p dist)",
+      "Bash(cp nasdaq-tracker.html dist/index.html)",
+      "Bash(git *)"
+    ]
+  }
+}
