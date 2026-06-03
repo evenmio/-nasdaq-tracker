@@ -85,90 +85,153 @@
 </div>
 
 <script>
+// ===== 数据源: 优先新浪(更新快)，降级腾讯 =====
+var _loaded = false;
+
 function fmt(n) {
   if (n === undefined || n === null || isNaN(n)) return '--';
   return n.toFixed(2);
 }
 
+function renderData(d, source) {
+  var st = document.getElementById('status');
+  st.style.display = 'none';
+  document.getElementById('detail').style.display = 'block';
+
+  document.getElementById('price').textContent = fmt(d.close);
+  document.getElementById('open').textContent = fmt(d.open);
+  document.getElementById('high').textContent = fmt(d.high);
+  document.getElementById('low').textContent = fmt(d.low);
+  document.getElementById('prevClose').textContent = fmt(d.prevClose);
+  document.getElementById('updateTime').textContent = d.time || '--';
+
+  var el = document.getElementById('change');
+  var isUp = d.pct >= 0;
+  el.textContent = (isUp ? '+' : '') + fmt(d.pct) + '%';
+  el.className = 'change ' + (isUp ? 'up' : 'down');
+  document.title = '纳指 ' + (isUp ? '+' : '') + fmt(d.pct) + '%';
+
+  // 数据来源显示
+  document.querySelector('.footer').innerHTML =
+    '数据: ' + (source === 'sina' ? '新浪财经' : '腾讯行情') +
+    ' | 仅供参考' + ' | <span style="color:#484f58">' + (d.time || '') + '</span>';
+
+  // 判断弹药
+  var ve = document.getElementById('verdict');
+  var pe = document.getElementById('planDetail');
+  var absPct = Math.abs(d.pct);
+
+  if (d.pct < 0 && absPct >= 1.5) {
+    ve.textContent = '触发弹药! 跌了 ' + absPct.toFixed(1) + '%';
+    ve.className = 'verdict trigger';
+    pe.style.display = 'block';
+    document.getElementById('totalAmount').textContent = '250元 (基础180+弹药70)';
+    document.getElementById('dcAmount').textContent = '50元';
+    document.getElementById('gfAmount').textContent = '100元';
+    document.getElementById('thAmount').textContent = '100元';
+  } else if (d.pct < 0) {
+    ve.textContent = '跌了 ' + absPct.toFixed(1) + '% 未达阈值，弹药留着';
+    ve.className = 'verdict hold';
+    pe.style.display = 'block';
+    document.getElementById('totalAmount').textContent = '180元 (基础)';
+    document.getElementById('dcAmount').textContent = '30元';
+    document.getElementById('gfAmount').textContent = '80元';
+    document.getElementById('thAmount').textContent = '70元';
+  } else {
+    ve.textContent = '上涨 ' + fmt(d.pct) + '%，不上弹药';
+    ve.className = 'verdict normal';
+    pe.style.display = 'block';
+    document.getElementById('totalAmount').textContent = '180元 (基础)';
+    document.getElementById('dcAmount').textContent = '30元';
+    document.getElementById('gfAmount').textContent = '80元';
+    document.getElementById('thAmount').textContent = '70元';
+  }
+}
+
+function parseSinaData(raw) {
+  // var hq_str_gb_$ixic="名称,现价,涨跌幅%,时间,涨跌额,开盘,最高,最低,昨收"
+  var f = raw.split(',');
+  if (f.length < 9) return null;
+  var close = parseFloat(f[1]);
+  var changePct = parseFloat(f[2]);  // parseFloat 自动忽略后缀 %
+  if (isNaN(close) || isNaN(changePct)) return null;
+  return {
+    close: close,
+    pct: changePct,
+    open: parseFloat(f[5]),
+    high: parseFloat(f[6]),
+    low: parseFloat(f[7]),
+    prevClose: parseFloat(f[8]),
+    time: f[3]
+  };
+}
+
+function parseTencentData(raw) {
+  var f = raw.split('~');
+  var close = parseFloat(f[3]);
+  var changePct = parseFloat(f[32]);
+  if (isNaN(close) || isNaN(changePct)) return null;
+  return {
+    close: close,
+    pct: changePct,
+    open: parseFloat(f[5]),
+    high: parseFloat(f[33]),
+    low: parseFloat(f[34]),
+    prevClose: parseFloat(f[4]),
+    time: f[30] || '--'
+  };
+}
+
+function trySina() {
+  var s = document.createElement('script');
+  s.onload = function() {
+    if (_loaded) return;
+    var raw = window['hq_str_gb_$ixic'];
+    if (!raw) { tryTencent(); return; }
+    var d = parseSinaData(raw);
+    if (!d) { tryTencent(); return; }
+    _loaded = true;
+    renderData(d, 'sina');
+  };
+  s.onerror = function() {
+    if (!_loaded) tryTencent();
+  };
+  s.src = 'https://hq.sinajs.cn/list=gb_$ixic?' + Date.now();
+  document.head.appendChild(s);
+}
+
+function tryTencent() {
+  if (_loaded) return;
+  var s = document.createElement('script');
+  s.onload = function() {
+    if (_loaded) return;
+    try {
+      var raw = window.v_usIXIC;
+      if (!raw) throw new Error('empty');
+      var d = parseTencentData(raw);
+      if (!d) throw new Error('parse fail');
+      _loaded = true;
+      renderData(d, 'tencent');
+    } catch(e) {
+      document.getElementById('status').textContent = '解析失败: ' + e.message;
+    }
+  };
+  s.onerror = function() {
+    if (!_loaded) {
+      document.getElementById('status').textContent = '数据请求失败，检查网络后重试';
+    }
+  };
+  s.src = 'https://qt.gtimg.cn/q=usIXIC?' + Date.now();
+  document.head.appendChild(s);
+}
+
 function refresh() {
+  _loaded = false;
   var st = document.getElementById('status');
   st.style.display = 'block';
   st.textContent = '正在获取数据...';
   document.getElementById('detail').style.display = 'none';
-
-  var s = document.createElement('script');
-
-  s.onload = function() {
-    try {
-      var raw = window.v_usIXIC;
-      if (!raw) { throw new Error('empty'); }
-      var f = raw.split('~');
-      // 字段位置: 3=现价, 4=昨收, 5=开盘, 7=成交量
-      // 31=时间, 32=涨跌额, 33=涨跌幅%, 34=最高, 35=最低
-      var close = parseFloat(f[3]);
-      var changePct = parseFloat(f[32]);
-
-      if (isNaN(close) || isNaN(changePct)) { throw new Error('parse fail'); }
-
-      st.style.display = 'none';
-      document.getElementById('detail').style.display = 'block';
-
-      // 填充数据
-      document.getElementById('price').textContent = fmt(close);
-      document.getElementById('open').textContent = fmt(parseFloat(f[5]));
-      document.getElementById('high').textContent = fmt(parseFloat(f[33]));
-      document.getElementById('low').textContent = fmt(parseFloat(f[34]));
-      document.getElementById('prevClose').textContent = fmt(parseFloat(f[4]));
-      document.getElementById('updateTime').textContent = f[30] || '--';
-
-      var el = document.getElementById('change');
-      var isUp = changePct >= 0;
-      el.textContent = (isUp ? '+' : '') + fmt(changePct) + '%';
-      el.className = 'change ' + (isUp ? 'up' : 'down');
-
-      document.title = '纳指 ' + (isUp ? '+' : '') + fmt(changePct) + '%';
-
-      // 判断弹药
-      var ve = document.getElementById('verdict');
-      var pe = document.getElementById('planDetail');
-      var absPct = Math.abs(changePct);
-
-      if (changePct < 0 && absPct >= 1.5) {
-        ve.textContent = '触发弹药! 跌了 ' + absPct.toFixed(1) + '%';
-        ve.className = 'verdict trigger';
-        pe.style.display = 'block';
-        document.getElementById('totalAmount').textContent = '250元 (基础180+弹药70)';
-        document.getElementById('dcAmount').textContent = '50元';
-        document.getElementById('gfAmount').textContent = '100元';
-        document.getElementById('thAmount').textContent = '100元';
-      } else if (changePct < 0) {
-        ve.textContent = '跌了 ' + absPct.toFixed(1) + '% 未达阈值，弹药留着';
-        ve.className = 'verdict hold';
-        pe.style.display = 'block';
-        document.getElementById('totalAmount').textContent = '180元 (基础)';
-        document.getElementById('dcAmount').textContent = '30元';
-        document.getElementById('gfAmount').textContent = '80元';
-        document.getElementById('thAmount').textContent = '70元';
-      } else {
-        ve.textContent = '上涨 ' + fmt(changePct) + '%，不上弹药';
-        ve.className = 'verdict normal';
-        pe.style.display = 'block';
-        document.getElementById('totalAmount').textContent = '180元 (基础)';
-        document.getElementById('dcAmount').textContent = '30元';
-        document.getElementById('gfAmount').textContent = '80元';
-        document.getElementById('thAmount').textContent = '70元';
-      }
-    } catch(e) {
-      st.textContent = '解析失败: ' + e.message;
-    }
-  };
-
-  s.onerror = function() {
-    st.textContent = '数据请求失败，检查网络后重试';
-  };
-
-  s.src = 'https://qt.gtimg.cn/q=usIXIC?' + Date.now();
-  document.head.appendChild(s);
+  trySina();  // 优先新浪
 }
 
 refresh();
