@@ -85,7 +85,7 @@
 </div>
 
 <script>
-// ===== 数据源: 优先新浪(更新快)，降级腾讯 =====
+// ===== 数据源: 腾讯行情（美股时间=美东，转北京时间显示） =====
 var _loaded = false;
 
 function fmt(n) {
@@ -93,7 +93,27 @@ function fmt(n) {
   return n.toFixed(2);
 }
 
-function renderData(d, source) {
+// 美东时间 → 北京时间（夏令时+12h，冬令时+13h）
+function etToBeijing(et) {
+  if (!et || et === '--') return '--';
+  var p = et.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+  if (!p) return et;
+  var y = +p[1], m = +p[2], d = +p[3], h = +p[4], min = +p[5], sec = +p[6];
+  // 判断夏令时: 3月第2个周日~11月第1个周日
+  var dstart = new Date(y, 2, 1); dstart.setDate(15 - dstart.getDay());
+  var dend = new Date(y, 10, 1); dend.setDate(1 + (7 - dend.getDay()) % 7);
+  if (dend.getDay() !== 0) dend.setDate(dend.getDate() + 7);
+  var dt = new Date(y, m - 1, d);
+  var add = (dt >= dstart && dt < dend) ? 12 : 13;
+  h += add; d += Math.floor(h / 24); h %= 24;
+  var dim = new Date(y, m, 0).getDate();
+  if (d > dim) { d = 1; m++; }
+  if (m > 12) { m = 1; y++; }
+  return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0') + ' ' +
+    String(h).padStart(2, '0') + ':' + String(min).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+}
+
+function renderData(d) {
   var st = document.getElementById('status');
   st.style.display = 'none';
   document.getElementById('detail').style.display = 'block';
@@ -111,10 +131,10 @@ function renderData(d, source) {
   el.className = 'change ' + (isUp ? 'up' : 'down');
   document.title = '纳指 ' + (isUp ? '+' : '') + fmt(d.pct) + '%';
 
-  // 数据来源显示
+  // 底部显示数据源
   document.querySelector('.footer').innerHTML =
-    '数据: ' + (source === 'sina' ? '新浪财经' : '腾讯行情') +
-    ' | 仅供参考' + ' | <span style="color:#484f58">' + (d.time || '') + '</span>';
+    '数据: 腾讯行情 | 仅供参考' +
+    ' | <span style="color:#484f58">北京时间 ' + (d.time || '') + '</span>';
 
   // 判断弹药
   var ve = document.getElementById('verdict');
@@ -148,93 +168,44 @@ function renderData(d, source) {
   }
 }
 
-function parseSinaData(raw) {
-  // var hq_str_gb_$ixic="名称,现价,涨跌幅%,时间,涨跌额,开盘,最高,最低,昨收"
-  var f = raw.split(',');
-  if (f.length < 9) return null;
-  var close = parseFloat(f[1]);
-  var changePct = parseFloat(f[2]);  // parseFloat 自动忽略后缀 %
-  if (isNaN(close) || isNaN(changePct)) return null;
-  return {
-    close: close,
-    pct: changePct,
-    open: parseFloat(f[5]),
-    high: parseFloat(f[6]),
-    low: parseFloat(f[7]),
-    prevClose: parseFloat(f[8]),
-    time: f[3]
-  };
-}
+function loadData() {
+  _loaded = false;
+  var st = document.getElementById('status');
+  st.style.display = 'block';
+  st.textContent = '正在获取数据...';
+  document.getElementById('detail').style.display = 'none';
 
-function parseTencentData(raw) {
-  var f = raw.split('~');
-  var close = parseFloat(f[3]);
-  var changePct = parseFloat(f[32]);
-  if (isNaN(close) || isNaN(changePct)) return null;
-  return {
-    close: close,
-    pct: changePct,
-    open: parseFloat(f[5]),
-    high: parseFloat(f[33]),
-    low: parseFloat(f[34]),
-    prevClose: parseFloat(f[4]),
-    time: f[30] || '--'
-  };
-}
-
-function trySina() {
-  var s = document.createElement('script');
-  s.onload = function() {
-    if (_loaded) return;
-    var raw = window['hq_str_gb_$ixic'];
-    if (!raw) { tryTencent(); return; }
-    var d = parseSinaData(raw);
-    if (!d) { tryTencent(); return; }
-    _loaded = true;
-    renderData(d, 'sina');
-  };
-  s.onerror = function() {
-    if (!_loaded) tryTencent();
-  };
-  s.src = 'https://hq.sinajs.cn/list=gb_$ixic?' + Date.now();
-  document.head.appendChild(s);
-}
-
-function tryTencent() {
-  if (_loaded) return;
   var s = document.createElement('script');
   s.onload = function() {
     if (_loaded) return;
     try {
       var raw = window.v_usIXIC;
       if (!raw) throw new Error('empty');
-      var d = parseTencentData(raw);
-      if (!d) throw new Error('parse fail');
+      var f = raw.split('~');
+      var close = parseFloat(f[3]), pct = parseFloat(f[32]);
+      if (isNaN(close) || isNaN(pct)) throw new Error('parse fail');
       _loaded = true;
-      renderData(d, 'tencent');
+      renderData({
+        close: close,
+        pct: pct,
+        open: parseFloat(f[5]),
+        high: parseFloat(f[33]),
+        low: parseFloat(f[34]),
+        prevClose: parseFloat(f[4]),
+        time: etToBeijing(f[30])
+      });
     } catch(e) {
-      document.getElementById('status').textContent = '解析失败: ' + e.message;
+      st.textContent = '解析失败: ' + e.message;
     }
   };
   s.onerror = function() {
-    if (!_loaded) {
-      document.getElementById('status').textContent = '数据请求失败，检查网络后重试';
-    }
+    st.textContent = '数据请求失败，检查网络后重试';
   };
   s.src = 'https://qt.gtimg.cn/q=usIXIC?' + Date.now();
   document.head.appendChild(s);
 }
 
-function refresh() {
-  _loaded = false;
-  var st = document.getElementById('status');
-  st.style.display = 'block';
-  st.textContent = '正在获取数据...';
-  document.getElementById('detail').style.display = 'none';
-  trySina();  // 优先新浪
-}
-
-refresh();
+loadData();
 </script>
 </body>
 </html>
